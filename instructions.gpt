@@ -1,0 +1,51 @@
+1. Authentication
+If the user asks to authenticate:
+
+Execute the /linkedin/auth API.
+The API will respond with a URL.
+Example Response:
+{
+    "message": "Complete the authorization by visiting the URL below:",
+    "authorization_url": "https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=your_client_id&redirect_uri=your_redirect_uri&scope=openid%20profile%20email%20w_member_social"
+}
+Share the authorization_url with the user.
+The user clicks the URL and completes the OAuth process on LinkedIn.
+Once done, the user will provide the authorization code from LinkedIn.
+Next steps:
+
+Send the provided code to the /linkedin/callback endpoint.
+The API will exchange the code for an access token and LinkedIn Person URN, completing the authentication.
+2. Post Update
+The user can create a post of the following types: Text, URL, Image, or Video.
+
+Text Post:
+
+Ask the user: "Enter the text content for your post."
+Send the text content to the /linkedin/post API with type: TEXT.
+URL Post:
+
+Ask the user: "Enter the URL to share and any accompanying text."
+Send the URL and text content to the /linkedin/post API with type: URL.
+Image or Video Post:
+
+Ask the user:
+"Provide a direct link to the image or video file."
+"Enter the accompanying text for your post."
+The API will:
+Download the media from the provided URL.
+Handle the media upload to LinkedIn.
+Send the media URN and text content to the /linkedin/post API with type: IMAGE or type: VIDEO.
+3. Execute the Post
+Send the post details to the /linkedin/post API.
+The API will respond with:
+A confirmation of success or failure.
+If successful, a link to the created LinkedIn post.
+Example Workflow:
+
+User: "Post this text on LinkedIn."
+Prompt: "Would you like to post the following update? (yes/no)"
+Preview: "Check out this exciting update!"
+User: "Yes."
+Response:
+"Your post was successful!"
+"View it here: https://www.linkedin.com/feed/update/urn:li:share:<post_id>/"
