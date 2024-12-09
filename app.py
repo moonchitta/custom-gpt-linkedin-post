@@ -1,20 +1,24 @@
+from datetime import datetime, timedelta
+
 from flask import Flask, request, jsonify, redirect
 import requests
 import os
 import json
 from bs4 import BeautifulSoup
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
-STATIC_TOKEN = "<your_token>"
-
 # LinkedIn OAuth and API setup
-LINKEDIN_CLIENT_ID = "<linkedin_client_id>"
-LINKEDIN_CLIENT_SECRET = "<linkedin_client_secret>"
-REDIRECT_URI = "https://<your_hosted_code>/linkedin/callback"
-ACCESS_TOKEN_FILE = "linkedin_access_token.json"
-PROFILE_URN_FILE = "linkedin_profile_urn.json"
+LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")
+LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("REDIRECT_URI")
+ACCESS_TOKEN_FILE = os.getenv("ACCESS_TOKEN_FILE", "linkedin_access_token.json")
+PROFILE_URN_FILE = os.getenv("PROFILE_URN_FILE", "linkedin_profile_urn.json")
 
 # LinkedIn authorization URL
 LINKEDIN_AUTH_URL = (
@@ -23,10 +27,102 @@ LINKEDIN_AUTH_URL = (
     f"&scope=openid%20profile%20email%20w_member_social"
 )
 
+
+# Function to save token
+def save_token(access_token, expires_in):
+    expiration_time = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+    token_data = {
+        "access_token": access_token,
+        "expiration_time": expiration_time
+    }
+    with open(ACCESS_TOKEN_FILE, "w") as file:
+        json.dump(token_data, file)
+
 def validate_token():
-    token = request.headers.get("Authorization")
-    if not token or token != f"Bearer {STATIC_TOKEN}":
-        return jsonify({"error": "Unauthorized. Invalid or missing token."}), 401
+    """
+    Validate the access token and check if it is missing or expired.
+    Return an error response if the token is invalid, otherwise return None.
+    """
+    access_token, expiration_time = load_token()  # Load the token and its expiration time
+    if not access_token or (expiration_time and is_token_expired(expiration_time)):
+        print(f"Generate new token")
+        return jsonify({
+            "error": "Access token is missing or expired. Please generate a new token.",
+            "authorization_url": LINKEDIN_AUTH_URL
+        }), 401
+    return None
+
+# Function to load token
+def load_token():
+    if not os.path.exists(ACCESS_TOKEN_FILE):
+        return None, None
+
+    with open(ACCESS_TOKEN_FILE, "r") as file:
+        token_data = json.load(file)
+
+    access_token = token_data.get("access_token")
+    expiration_time_str = token_data.get("expiration_time")
+
+    if not access_token or not expiration_time_str:
+        return None, None
+
+    try:
+        expiration_time = datetime.fromisoformat(expiration_time_str)
+    except ValueError:
+        return None, None
+
+    return access_token, expiration_time
+
+
+# Function to check if token is expired
+def is_token_expired(expiration_time):
+    return datetime.now() >= expiration_time
+
+
+@app.route('/linkedin/generate_token', methods=['POST'])
+def generate_token():
+    data = request.json
+    auth_code = data.get("authorization_code")
+    if not auth_code:
+        return jsonify({"error": "Authorization code is required"}), 400
+
+    # Token exchange URL
+    token_url = "https://www.linkedin.com/oauth/v2/accessToken"
+    payload = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "redirect_uri": REDIRECT_URI,
+        "client_id": LINKEDIN_CLIENT_ID,
+        "client_secret": LINKEDIN_CLIENT_SECRET
+    }
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    # Exchange the authorization code for an access token
+    response = requests.post(token_url, data=payload, headers=headers)
+    if response.status_code == 200:
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in")
+        save_token(access_token, expires_in)
+        return jsonify({"message": "Token generated successfully", "access_token": access_token})
+    else:
+        return jsonify({"error": "Token generation failed", "details": response.json()}), response.status_code
+
+
+# # Middleware to ensure token validity
+# @app.before_request
+# def ensure_token_validity():
+#     # Exclude endpoints that are part of the authorization flow
+#     excluded_paths = ["/linkedin/auth", "/linkedin/callback", "/linkedin/generate_token"]
+#     if any(request.path.startswith(path) for path in excluded_paths):
+#         return
+#
+#     # Validate the token for other endpoints
+#     access_token, expiration_time = load_token()
+#     if not access_token or (expiration_time and is_token_expired(expiration_time)):
+#         return jsonify({"error": "Access token is missing or expired. Please generate a new token."}), 401
 
 @app.route("/linkedin/auth", methods=["GET"])
 def linkedin_auth():
@@ -36,6 +132,7 @@ def linkedin_auth():
     if validation_response:
         return validation_response
 
+    print(f"provide auth link to user")
     """Provide the LinkedIn authorization URL to the user."""
     try:
         # Return the LinkedIn authorization URL in the response
@@ -44,6 +141,7 @@ def linkedin_auth():
             "authorization_url": LINKEDIN_AUTH_URL
         }), 200
     except Exception as e:
+        print(f"Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/linkedin/callback", methods=["GET"])
@@ -253,5 +351,91 @@ def linkedin_post():
 
     return jsonify({"error": "Failed to post on LinkedIn.", "details": response.json()}), 400
 
+# Endpoint to create a LinkedIn invitation
+@app.route('/linkedin/invitation/create', methods=['POST'])
+def create_invitation():
+    data = request.json
+    url = "https://api.linkedin.com/v2/invitations"
+
+    try:
+        with open(ACCESS_TOKEN_FILE, "r") as token_file:
+            token_data = json.load(token_file)
+        access_token = token_data["access_token"]
+
+        with open(PROFILE_URN_FILE, "r") as urn_file:
+            profile_data = json.load(urn_file)
+        profile_urn = profile_data["profile_urn"]
+    except FileNotFoundError:
+        return jsonify({"error": "Access token or profile URN not found. Please authorize first."}), 400
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "invitee": {
+            "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+                "profileId": data.get("profileId")
+            }
+        },
+        "trackingId": data.get("trackingId"),
+        "message": data.get("message", "")
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    return jsonify(response.json()), response.status_code
+
+# Endpoint to retrieve LinkedIn invitations
+@app.route('/linkedin/invitation/retrieve', methods=['GET'])
+def retrieve_invitations():
+    url = "https://api.linkedin.com/v2/invitations"
+    try:
+        with open(ACCESS_TOKEN_FILE, "r") as token_file:
+            token_data = json.load(token_file)
+        access_token = token_data["access_token"]
+    except FileNotFoundError:
+        return jsonify({"error": "Access token or profile URN not found. Please authorize first."}), 400
+
+    print(f"Token: {access_token}")
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+    response = requests.get(url, headers=headers)
+    return jsonify(response.json()), response.status_code
+
+# Endpoint to take action on a LinkedIn invitation
+@app.route('/linkedin/invitation/action', methods=['POST'])
+def action_on_invitation():
+    data = request.json
+    invitation_id = data.get("invitationId")
+    action = data.get("action")  # Accept or Reject
+    url = f"https://api.linkedin.com/v2/invitations/{invitation_id}/action/{action}"
+    try:
+        with open(ACCESS_TOKEN_FILE, "r") as token_file:
+            token_data = json.load(token_file)
+        access_token = token_data["access_token"]
+    except FileNotFoundError:
+        return jsonify({"error": "Access token or profile URN not found. Please authorize first."}), 400
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, headers=headers)
+    return jsonify(response.json()), response.status_code
+
+# Endpoint to resolve LinkedIn invitation issues
+@app.route('/linkedin/invitation/resolve', methods=['POST'])
+def resolve_invitation_problems():
+    data = request.json
+    issue_type = data.get("issueType")  # Specify the issue type
+    details = data.get("details")  # Additional details about the issue
+    # Here, implement logic to handle or log specific invitation issues.
+    # For now, we simulate resolving the issue.
+    resolution = {
+        "status": "Resolved",
+        "issueType": issue_type,
+        "details": details
+    }
+    return jsonify(resolution), 200
+
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(port=8080, debug=True)

@@ -1,148 +1,317 @@
-openapi: 3.1.0
 info:
-  title: LinkedIn API Integration
   description: API for LinkedIn OAuth and posting updates with static token authentication.
+  title: LinkedIn API Integration
   version: 1.0.0
-servers:
-  - url: https://linkedin.bala-kot.com
-    description: Hosted server
+openapi: 3.1.0
 paths:
   /linkedin/auth:
     get:
-      operationId: getLinkedinAuth
-      summary: Get LinkedIn Authorization URL
       description: Returns the LinkedIn authorization URL for the user to authenticate.
+      operationId: getLinkedinAuth
       parameters:
-        - name: Authorization
-          in: header
-          required: true
-          description: Bearer token for static token authentication.
-          schema:
-            type: string
-            example: Bearer BXwPmbgvlwPtoz24fffxeYYa2P5qGh9ebxRZ7XYe4zoMZh8vUKKGmeshzUl5qpKI
+      - description: Bearer token for static token authentication.
+        in: header
+        name: Authorization
+        required: true
+        schema:
+          example: Bearer BXwPmbgvlwPtoz24fffxeYYa2P5qGh9ebxRZ7XYe4zoMZh8vUKKGmeshzUl5qpKI
+          type: string
       responses:
-        "200":
-          description: Authorization URL successfully returned.
+        '200':
           content:
             application/json:
               schema:
-                type: object
                 properties:
-                  message:
-                    type: string
                   authorization_url:
                     type: string
-        "401":
-          description: Unauthorized due to missing or invalid token.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-  /linkedin/callback:
-    get:
-      operationId: handleLinkedinCallback
-      summary: LinkedIn Callback
-      description: Handles LinkedIn's OAuth callback to retrieve access tokens.
-      parameters:
-        - name: code
-          in: query
-          required: true
-          description: Authorization code from LinkedIn.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Authorization successful, profile URN returned.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
                   message:
                     type: string
-                  profile_urn:
-                    type: string
-        "400":
-          description: Authorization code missing or error during token retrieval.
+                type: object
+          description: Authorization URL successfully returned.
+        '401':
           content:
             application/json:
               schema:
-                type: object
                 properties:
                   error:
                     type: string
+                type: object
+          description: Unauthorized due to missing or invalid token.
+      summary: Get LinkedIn Authorization URL
+  /linkedin/authorize:
+    get:
+      description: Redirects the user to LinkedIn authorization URL.
+      operationId: authorizeUser
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  authorization_url:
+                    type: string
+                  message:
+                    type: string
+                type: object
+          description: Redirect to LinkedIn authorization URL successful.
+        '500':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Internal server error occurred.
+      summary: Start LinkedIn OAuth Authorization
+  /linkedin/callback:
+    get:
+      description: Handles LinkedIn callback to retrieve access tokens.
+      operationId: handleLinkedinCallback
+      parameters:
+      - description: Authorization code from LinkedIn.
+        in: query
+        name: code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  access_token:
+                    type: string
+                  message:
+                    type: string
+                type: object
+          description: Authorization successful and access token retrieved.
+        '400':
+          content:
+            application/json:
+              schema:
+                properties:
                   details:
                     type: object
-  /linkedin/post:
+                  error:
+                    type: string
+                type: object
+          description: Authorization code missing or error during token retrieval.
+        '500':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Internal server error occurred.
+      summary: Handle LinkedIn OAuth Callback
+  /linkedin/invitation/action:
     post:
-      operationId: postToLinkedin
-      summary: Post an Update to LinkedIn
-      description: Posts an update to LinkedIn with optional media or URL metadata.
-      parameters:
-        - name: Authorization
-          in: header
-          required: true
-          description: Bearer token for static token authentication.
-          schema:
-            type: string
-            example: Bearer BXwPmbgvlwPtoz24fffxeYYa2P5qGh9ebxRZ7XYe4zoMZh8vUKKGmeshzUl5qpKI
+      description: Accepts or rejects a LinkedIn invitation.
+      operationId: actionOnInvitation
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
               properties:
-                type:
+                action:
+                  description: Action to perform (ACCEPT or REJECT).
+                  example: ACCEPT
                   type: string
-                  description: Type of post (TEXT, URL, IMAGE, or VIDEO).
-                  example: TEXT
-                text:
+                invitationId:
+                  description: The ID of the invitation to act upon.
+                  example: def789
                   type: string
-                  description: Text content of the post.
-                  example: "Hello LinkedIn!"
-                url:
-                  type: string
-                  description: URL to include in the post (for URL type posts).
-                  example: "https://example.com"
-                media_url:
-                  type: string
-                  description: Media file URL to upload (for IMAGE or VIDEO posts).
-                  example: "https://example.com/image.jpg"
+              type: object
+        required: true
       responses:
-        "200":
-          description: Post successfully created on LinkedIn.
+        '200':
           content:
             application/json:
               schema:
-                type: object
                 properties:
                   message:
                     type: string
-                  response:
-                    type: object
+                type: object
+          description: Invitation action successfully performed.
+        '400':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Error occurred during invitation action.
+        '401':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Unauthorized due to missing or invalid token.
+      summary: Take Action on a LinkedIn Invitation
+  /linkedin/invitation/create:
+    post:
+      description: Sends a connection invitation to another LinkedIn user.
+      operationId: createInvitation
+      parameters:
+      - description: Bearer token for static token authentication.
+        in: header
+        name: Authorization
+        required: true
+        schema:
+          example: Bearer BXwPmbgvlwPtoz24fffxeYYa2P5qGh9ebxRZ7XYe4zoMZh8vUKKGmeshzUl5qpKI
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                message:
+                  description: Optional custom message for the invitation.
+                  example: Let's connect on LinkedIn!
+                  type: string
+                profileId:
+                  description: The profile ID of the user to send the invitation to.
+                  example: abc123
+                  type: string
+                trackingId:
+                  description: A unique identifier for tracking the invitation.
+                  example: xyz456
+                  type: string
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  invitationId:
+                    type: string
+                  message:
+                    type: string
+                type: object
+          description: Invitation successfully created.
+        '400':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Error occurred during invitation creation.
+      summary: Create LinkedIn Invitation
+  /linkedin/invitation/retrieve:
+    get:
+      description: Fetches a list of pending or sent LinkedIn invitations.
+      operationId: retrieveInvitations
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  invitations:
+                    items:
+                      properties:
+                        invitationId:
+                          type: string
+                        profileId:
+                          type: string
+                        status:
+                          type: string
+                      type: object
+                    type: array
+                type: object
+          description: Invitations successfully retrieved.
+        '401':
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                type: object
+          description: Unauthorized due to missing or invalid token.
+      summary: Retrieve LinkedIn Invitations
+  /linkedin/post:
+    post:
+      description: Posts an update to LinkedIn with optional media or URL metadata.
+      operationId: postToLinkedin
+      parameters:
+      - description: Bearer token for static token authentication.
+        in: header
+        name: Authorization
+        required: true
+        schema:
+          example: Bearer BXwPmbgvlwPtoz24fffxeYYa2P5qGh9ebxRZ7XYe4zoMZh8vUKKGmeshzUl5qpKI
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                media_url:
+                  description: Media file URL to upload (for IMAGE or VIDEO posts).
+                  example: https://example.com/image.jpg
+                  type: string
+                text:
+                  description: Text content of the post.
+                  example: Hello LinkedIn!
+                  type: string
+                type:
+                  description: Type of post (TEXT, URL, IMAGE, or VIDEO).
+                  example: TEXT
+                  type: string
+                url:
+                  description: URL to include in the post (for URL type posts).
+                  example: https://example.com
+                  type: string
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  message:
+                    type: string
                   post_url:
                     type: string
-        "400":
-          description: Error occurred during posting or invalid media.
+                  response:
+                    type: object
+                type: object
+          description: Post successfully created on LinkedIn.
+        '400':
           content:
             application/json:
               schema:
-                type: object
                 properties:
-                  error:
-                    type: string
                   details:
                     type: object
-        "401":
-          description: Unauthorized due to missing or invalid token.
+                  error:
+                    type: string
+                type: object
+          description: Error occurred during posting or invalid media.
+        '401':
           content:
             application/json:
               schema:
-                type: object
                 properties:
                   error:
                     type: string
+                type: object
+          description: Unauthorized due to missing or invalid token.
+      summary: Post an Update to LinkedIn
+servers:
+- description: Ngrok development server
+  url: https://8935-202-165-235-97.ngrok-free.app
